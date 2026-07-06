@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Physics-Informed Neural Networks for Fluid Flow Simulation</title>
+<style>
+  :root {
+    --bg: #0b1020;
+    --panel: #131a30;
+    --panel2: #1a2340;
+    --ink: #e8ecf8;
+    --muted: #93a0c4;
+    --accent: #4fc3f7;
+    --accent2: #ffb74d;
+    --border: #263156;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.6;
+  }
+  .wrap { max-width: 1060px; margin: 0 auto; padding: 0 24px 80px; }
+
+  header {
+    padding: 64px 0 40px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 40px;
+  }
+  .kicker {
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 2.5px;
+    font-size: 12px;
+    font-weight: 700;
+    margin-bottom: 14px;
+  }
+  h1 { font-size: 34px; font-weight: 800; line-height: 1.25; margin-bottom: 14px; }
+  .subtitle { color: var(--muted); font-size: 17px; max-width: 780px; }
+  .meta { margin-top: 18px; display: flex; gap: 10px; flex-wrap: wrap; }
+  .chip {
+    background: var(--panel2);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 4px 14px;
+    font-size: 12.5px;
+    color: var(--muted);
+  }
+
+  h2 { font-size: 22px; margin: 44px 0 14px; font-weight: 750; }
+  h2 .num { color: var(--accent); margin-right: 8px; }
+  p.body { color: #c3cce6; margin-bottom: 12px; max-width: 860px; }
+  code { background: var(--panel2); border-radius: 5px; padding: 1px 6px; font-size: 0.9em; color: #a5d6ff; }
+
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; margin: 18px 0; }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 18px;
+  }
+  .card h3 { font-size: 14.5px; margin-bottom: 6px; color: var(--accent); }
+  .card p { font-size: 13.5px; color: var(--muted); }
+
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px; margin: 18px 0 6px; }
+  .stat {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px 18px;
+    text-align: center;
+  }
+  .stat .v { font-size: 26px; font-weight: 800; color: var(--accent); }
+  .stat .l { font-size: 12px; color: var(--muted); margin-top: 3px; }
+
+  .viz {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 22px;
+    margin-top: 18px;
+  }
+  .controls { display: flex; gap: 18px; align-items: center; flex-wrap: wrap; margin-bottom: 16px; }
+  .controls label { font-size: 13px; color: var(--muted); }
+  select, button {
+    background: var(--panel2);
+    color: var(--ink);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 7px 12px;
+    font-size: 13.5px;
+    cursor: pointer;
+  }
+  button.play { min-width: 88px; }
+  input[type="range"] { width: 200px; accent-color: var(--accent); }
+  .tval { font-variant-numeric: tabular-nums; color: var(--accent2); font-weight: 700; font-size: 13.5px; }
+
+  .fieldpair { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  @media (max-width: 760px) { .fieldpair { grid-template-columns: 1fr; } }
+  .fieldbox h4 { font-size: 13.5px; color: var(--muted); font-weight: 600; margin-bottom: 8px; text-align: center; }
+  canvas.field { width: 100%; border-radius: 8px; background: #000; display: block; }
+  .cbar { display: flex; align-items: center; gap: 10px; margin-top: 14px; font-size: 12px; color: var(--muted); }
+  canvas.cbarcanvas { border-radius: 4px; }
+
+  canvas.loss { width: 100%; height: 260px; display: block; }
+
+  .footer {
+    margin-top: 56px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 13px;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="kicker">Machine Learning &times; Computational Fluid Dynamics</div>
+    <h1>Physics-Informed Neural Networks for Fluid Flow Simulation</h1>
+    <p class="subtitle">
+      Reconstructing the velocity and pressure fields of flow past a cylinder by embedding
+      the Navier&ndash;Stokes equations directly into a neural network's training loss &mdash;
+      and discovering the fluid's physical parameters from data alone.
+    </p>
+    <div class="meta">
+      <span class="chip">PyTorch</span>
+      <span class="chip">Navier&ndash;Stokes</span>
+      <span class="chip">PINN (Raissi et al., 2019)</span>
+      <span class="chip">Re = 100 cylinder wake</span>
+      <span class="chip" id="chip-arch">8 &times; 20 tanh MLP</span>
+    </div>
+  </header>
+
+  <h2><span class="num">01</span>Motivation</h2>
+  <p class="body">
+    Traditional numerical simulation of fluid flows &mdash; finite-volume or spectral solvers for the
+    Navier&ndash;Stokes equations &mdash; is computationally intensive and time-consuming. Physics-informed
+    neural networks (PINNs) offer an alternative: instead of learning purely from data, the network is
+    told the <em>universal laws</em> that govern velocity and pressure fields. The PDE residual is added
+    to the training loss, so the model learns dramatically faster and generalizes better than a purely
+    data-driven approach, even from sparse, scattered measurements.
+  </p>
+  <div class="cards">
+    <div class="card">
+      <h3>Physics as a constraint</h3>
+      <p>The incompressible Navier&ndash;Stokes momentum equations are evaluated on the network's output
+      via automatic differentiation and penalized as a residual loss.</p>
+    </div>
+    <div class="card">
+      <h3>Continuity by construction</h3>
+      <p>The network predicts a stream function &psi;; velocities are its derivatives
+      (u = &part;&psi;/&part;y, v = &minus;&part;&psi;/&part;x), so mass conservation is satisfied exactly.</p>
+    </div>
+    <div class="card">
+      <h3>Parameter discovery</h3>
+      <p>The convection and viscosity coefficients &lambda;&#8321;, &lambda;&#8322; are unknown trainable
+      scalars &mdash; the network recovers them from velocity data alone.</p>
+    </div>
+  </div>
+
+  <h2><span class="num">02</span>Data &amp; Setup</h2>
+  <p class="body">
+    Training data comes from the openly published high-fidelity spectral DNS solution of 2D flow past a
+    circular cylinder at Reynolds number 100 (the benchmark dataset of
+    <a href="https://github.com/maziarraissi/PINNs" target="_blank">Raissi, Perdikaris &amp; Karniadakis</a>):
+    a 100&times;50 spatial grid over the wake region, 200 snapshots in time. From the one million available
+    space&ndash;time points, only <span id="ntrain">5,000</span> randomly scattered velocity measurements
+    (&approx;0.5%) are used for training &mdash; the pressure field is <em>never</em> shown to the network
+    and is recovered purely through the physics.
+  </p>
+  <div class="stats">
+    <div class="stat"><div class="v" id="s-l1">&mdash;</div><div class="l">&lambda;&#8321; learned (true 1.0)</div></div>
+    <div class="stat"><div class="v" id="s-l2">&mdash;</div><div class="l">&lambda;&#8322; learned (true 0.01)</div></div>
+    <div class="stat"><div class="v" id="s-eu">&mdash;</div><div class="l">rel. L&#178; error, u</div></div>
+    <div class="stat"><div class="v" id="s-ev">&mdash;</div><div class="l">rel. L&#178; error, v</div></div>
+    <div class="stat"><div class="v" id="s-ep">&mdash;</div><div class="l">rel. L&#178; error, p</div></div>
+  </div>
+
+  <h2><span class="num">03</span>Results: PINN vs. Ground-Truth Simulation</h2>
+  <p class="body">
+    Drag the time slider or press play to compare the PINN reconstruction against the reference DNS
+    solution as the vortex street sheds off the cylinder. Note the pressure field on the right: the
+    network was never trained on pressure data &mdash; it emerges from enforcing momentum balance.
+  </p>
+  <div class="viz">
+    <div class="controls">
+      <button class="play" id="btn-play">&#9654; Play</button>
+      <label>Field:
+        <select id="sel-field">
+          <option value="speed">velocity magnitude |u|</option>
+          <option value="u">u (streamwise velocity)</option>
+          <option value="v">v (transverse velocity)</option>
+          <option value="p">p (pressure — unseen!)</option>
+        </select>
+      </label>
+      <label>t = <span class="tval" id="tval">0.0</span></label>
+      <input type="range" id="sl-time" min="0" max="9" step="1" value="0">
+    </div>
+    <div class="fieldpair">
+      <div class="fieldbox">
+        <h4>PINN prediction</h4>
+        <canvas class="field" id="cv-pred" width="800" height="400"></canvas>
+      </div>
+      <div class="fieldbox">
+        <h4>Ground truth (spectral DNS)</h4>
+        <canvas class="field" id="cv-true" width="800" height="400"></canvas>
+      </div>
+    </div>
+    <div class="cbar">
+      <span id="cb-min">min</span>
+      <canvas class="cbarcanvas" id="cv-cbar" width="260" height="14"></canvas>
+      <span id="cb-max">max</span>
+      <span style="margin-left:auto">domain: x &isin; [1, 8], y &isin; [&minus;2, 2] (cylinder upstream at origin)</span>
+    </div>
+  </div>
+
+  <h2><span class="num">04</span>Training Convergence</h2>
+  <p class="body">
+    Combined loss (data misfit + Navier&ndash;Stokes residual) over Adam iterations followed by L-BFGS
+    fine-tuning. Embedding the physics regularizes training: the loss drops smoothly and the PDE
+    coefficients converge to their true values without ever being labeled.
+  </p>
+  <div class="viz">
+    <canvas class="loss" id="cv-loss" width="1000" height="260"></canvas>
+  </div>
+
+  <h2><span class="num">05</span>Method Summary</h2>
+  <p class="body">
+    A fully-connected network <code>(x, y, t) &rarr; (&psi;, p)</code> with 8 hidden layers of 20 tanh units
+    is trained with the loss
+    <code>L = MSE(u, v) + MSE(f_u, f_v)</code>, where the momentum residuals
+    <code>f_u = u_t + &lambda;&#8321;(u u_x + v u_y) + p_x &minus; &lambda;&#8322;(u_xx + u_yy)</code>
+    (and analogously <code>f_v</code>) are computed with automatic differentiation.
+    Optimization runs 6,000 Adam steps followed by L-BFGS refinement. Because physical constraints are
+    baked into training, the model learns faster and more data-efficiently than a purely data-driven
+    network of the same size &mdash; and simultaneously solves an inverse problem, identifying the flow's
+    convection and viscosity parameters.
+  </p>
+
+  <div class="footer">
+    Built as part of an Inspirit AI extracurricular project (2023&ndash;2025), in collaboration with UCSB PhD
+    students &middot; Data: <a href="https://github.com/maziarraissi/PINNs" target="_blank">maziarraissi/PINNs</a>
+    (Raissi, Perdikaris &amp; Karniadakis, <em>Journal of Computational Physics</em>, 2019) &middot;
+    Trained with <code>train_pinn.py</code> in this repository.
+  </div>
+</div>
+
+<script src="results/results.js"></script>
+<script>
+(function () {
+  if (typeof RESULTS === "undefined") {
+    document.body.insertAdjacentHTML("afterbegin",
+      '<div style="background:#b71c1c;color:#fff;padding:12px 24px;font-size:14px">' +
+      'results/results.js not found &mdash; run <code>python3 train_pinn.py</code> first.</div>');
+    return;
+  }
+
+  const R = RESULTS;
+  const NX = R.grid.nx, NY = R.grid.ny;
+  const snaps = R.snapshots;
+
+  // header stats
+  document.getElementById("ntrain").textContent = R.n_train.toLocaleString();
+  document.getElementById("s-l1").textContent = R.lambda1.toFixed(3);
+  document.getElementById("s-l2").textContent = R.lambda2.toFixed(4);
+  document.getElementById("s-eu").textContent = (R.errors.u * 100).toFixed(2) + "%";
+  document.getElementById("s-ev").textContent = (R.errors.v * 100).toFixed(2) + "%";
+  document.getElementById("s-ep").textContent = (R.errors.p * 100).toFixed(2) + "%";
+  const nh = R.layers.length - 2;
+  document.getElementById("chip-arch").innerHTML = nh + " &times; " + R.layers[1] + " tanh MLP";
+
+  // ----- turbo-like colormap -----
+  function colormap(t) {
+    t = Math.min(1, Math.max(0, t));
+    const r = Math.round(255 * Math.min(1, Math.max(0, 1.61 * t - 0.23 + 1.35 * t * t - 1.0 * t * t * t + (t > 0.6 ? 0.35 * (t - 0.6) : 0))));
+    const g = Math.round(255 * Math.min(1, Math.max(0, -0.1 + 2.6 * t - 1.7 * t * t)));
+    const b = Math.round(255 * Math.min(1, Math.max(0, 0.95 - 1.2 * t + (t < 0.3 ? 0.6 * t : 0))));
+    return [r, g, b];
+  }
+
+  function getField(snap, field, which) {
+    if (field === "speed") {
+      const u = snap["u_" + which], v = snap["v_" + which];
+      return u.map((ui, i) => Math.hypot(ui, v[i]));
+    }
+    return snap[field + "_" + which];
+  }
+
+  // color range fixed per field across all snapshots (so animation doesn't flicker)
+  const ranges = {};
+  ["speed", "u", "v", "p"].forEach(f => {
+    let lo = Infinity, hi = -Infinity;
+    snaps.forEach(s => {
+      ["pred", "true"].forEach(w => {
+        getField(s, f, w).forEach(val => { if (val < lo) lo = val; if (val > hi) hi = val; });
+      });
+    });
+    ranges[f] = [lo, hi];
+  });
+
+  const cvPred = document.getElementById("cv-pred");
+  const cvTrue = document.getElementById("cv-true");
+  const slider = document.getElementById("sl-time");
+  const selField = document.getElementById("sel-field");
+  const tval = document.getElementById("tval");
+  slider.max = snaps.length - 1;
+
+  function drawField(canvas, vals, lo, hi) {
+    const ctx = canvas.getContext("2d");
+    const img = ctx.createImageData(NX, NY);
+    for (let iy = 0; iy < NY; iy++) {
+      for (let ix = 0; ix < NX; ix++) {
+        const val = vals[iy * NX + ix];
+        const [r, g, b] = colormap((val - lo) / (hi - lo));
+        // flip vertically: data row 0 is y=-2 (bottom), canvas row 0 is top
+        const o = ((NY - 1 - iy) * NX + ix) * 4;
+        img.data[o] = r; img.data[o + 1] = g; img.data[o + 2] = b; img.data[o + 3] = 255;
+      }
+    }
+    // draw at data resolution, then upscale smoothly
+    const tmp = document.createElement("canvas");
+    tmp.width = NX; tmp.height = NY;
+    tmp.getContext("2d").putImageData(img, 0, 0);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(tmp, 0, 0, canvas.width, canvas.height);
+  }
+
+  function drawColorbar(lo, hi) {
+    const cv = document.getElementById("cv-cbar");
+    const ctx = cv.getContext("2d");
+    for (let i = 0; i < cv.width; i++) {
+      const [r, g, b] = colormap(i / (cv.width - 1));
+      ctx.fillStyle = "rgb(" + r + "," + g + "," + b + ")";
+      ctx.fillRect(i, 0, 1, cv.height);
+    }
+    document.getElementById("cb-min").textContent = lo.toFixed(2);
+    document.getElementById("cb-max").textContent = hi.toFixed(2);
+  }
+
+  function render() {
+    const k = +slider.value;
+    const f = selField.value;
+    const snap = snaps[k];
+    const [lo, hi] = ranges[f];
+    drawField(cvPred, getField(snap, f, "pred"), lo, hi);
+    drawField(cvTrue, getField(snap, f, "true"), lo, hi);
+    drawColorbar(lo, hi);
+    tval.textContent = snap.t.toFixed(1);
+  }
+  slider.addEventListener("input", render);
+  selField.addEventListener("change", render);
+
+  // play / pause
+  let timer = null;
+  const btn = document.getElementById("btn-play");
+  btn.addEventListener("click", () => {
+    if (timer) {
+      clearInterval(timer); timer = null;
+      btn.innerHTML = "&#9654; Play";
+    } else {
+      timer = setInterval(() => {
+        slider.value = (+slider.value + 1) % snaps.length;
+        render();
+      }, 450);
+      btn.innerHTML = "&#10074;&#10074; Pause";
+    }
+  });
+
+  // ----- loss curve -----
+  function drawLoss() {
+    const cv = document.getElementById("cv-loss");
+    const ctx = cv.getContext("2d");
+    const W = cv.width, H = cv.height;
+    const padL = 64, padR = 16, padT = 14, padB = 34;
+    const hist = R.loss_history;
+    const xs = hist.map(h => h[0]);
+    const ys = hist.map(h => Math.log10(Math.max(h[1], 1e-12)));
+    const xmin = 0, xmax = Math.max(...xs);
+    const ymin = Math.floor(Math.min(...ys)), ymax = Math.ceil(Math.max(...ys));
+    const X = x => padL + (x - xmin) / (xmax - xmin) * (W - padL - padR);
+    const Y = y => padT + (ymax - y) / (ymax - ymin) * (H - padT - padB);
+
+    ctx.clearRect(0, 0, W, H);
+    ctx.font = "12px -apple-system, sans-serif";
+
+    // gridlines + y labels (log scale)
+    for (let e = ymin; e <= ymax; e++) {
+      ctx.strokeStyle = "#263156"; ctx.beginPath();
+      ctx.moveTo(padL, Y(e)); ctx.lineTo(W - padR, Y(e)); ctx.stroke();
+      ctx.fillStyle = "#93a0c4"; ctx.textAlign = "right";
+      ctx.fillText("1e" + e, padL - 8, Y(e) + 4);
+    }
+    // x labels
+    ctx.textAlign = "center";
+    for (let i = 0; i <= 4; i++) {
+      const xv = Math.round(xmin + (xmax - xmin) * i / 4);
+      ctx.fillText(xv.toLocaleString(), X(xv), H - 12);
+    }
+    ctx.fillText("iteration", W / 2, H - 0.5);
+
+    // curve
+    ctx.strokeStyle = "#4fc3f7"; ctx.lineWidth = 2; ctx.beginPath();
+    hist.forEach((h, i) => {
+      const px = X(h[0]), py = Y(Math.log10(Math.max(h[1], 1e-12)));
+      i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+    });
+    ctx.stroke();
+  }
+
+  render();
+  drawLoss();
+})();
+</script>
+</body>
+</html>

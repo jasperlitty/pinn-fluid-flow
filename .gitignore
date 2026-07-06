@@ -1,0 +1,6 @@
+# Large dataset — auto-downloaded by train_pinn.py
+data/cylinder_nektar_wake.mat
+
+# Python cache
+__pycache__/
+*.pyc
