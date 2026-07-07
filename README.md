@@ -20,6 +20,11 @@ collaboration with UCSB PhD students.
   trainable scalars, discovered from velocity data alone (true values: 1.0, 0.01).
 - **Pressure for free** — the model is never shown pressure data; the pressure field
   emerges purely from enforcing momentum balance.
+- **Equation discovery (SINDy × PINN)** — `discover_pde.py` goes further: instead of
+  assuming the Navier–Stokes form, each momentum equation is a sparse combination of a
+  14-term candidate library (real physics terms mixed with decoys like u², u·v, and a
+  constant). An L1 penalty prunes the decoys, and the network *rediscovers the
+  structure of the Navier–Stokes equations* from raw velocity data.
 
 ## Data (online source)
 
@@ -33,15 +38,19 @@ randomly scattered velocity samples (~0.5% of available points).
 
 ```bash
 pip install torch scipy numpy
-python3 train_pinn.py     # trains ~10 min on CPU, writes results/results.js
+python3 train_pinn.py     # trains ~20 min on CPU, writes results/results.js
+python3 discover_pde.py   # optional: sparse PDE discovery (~15 min, warm-starts from model.pt)
 open index.html           # interactive results page (works from file://)
 ```
+
+The dataset (24 MB) is downloaded automatically on first run.
 
 ## Files
 
 | File | Purpose |
 |---|---|
 | `train_pinn.py` | PINN model, training (Adam + L-BFGS), results export |
+| `discover_pde.py` | Sparse (SINDy-style) discovery of the governing equations from a term library |
 | `index.html` | Standalone showcase page: animated PINN-vs-DNS fields, loss curve, learned parameters |
 | `data/cylinder_nektar_wake.mat` | Cylinder-wake DNS dataset (downloaded) |
 | `results/results.js` | Exported predictions + metrics consumed by the page |

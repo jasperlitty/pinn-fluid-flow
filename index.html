@@ -106,6 +106,23 @@
 
   canvas.loss { width: 100%; height: 260px; display: block; }
 
+  .eqbox {
+    background: var(--panel2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 18px;
+    margin-bottom: 18px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 13.5px;
+    color: #a5d6ff;
+    line-height: 2;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+  .eqbox .lhs { color: var(--accent2); font-weight: 700; }
+  canvas.coef { width: 100%; display: block; }
+  .legendline { color: var(--muted); font-size: 12.5px; margin-top: 12px; }
+
   .footer {
     margin-top: 56px;
     padding-top: 20px;
@@ -230,7 +247,40 @@
     <canvas class="loss" id="cv-loss" width="1000" height="260"></canvas>
   </div>
 
-  <h2><span class="num">05</span>Method Summary</h2>
+  <h2><span class="num">05</span>Going Further: Discovering the Equations Themselves</h2>
+  <p class="body">
+    The model above <em>assumes</em> the Navier&ndash;Stokes form and fits two coefficients. This
+    extension drops that assumption entirely: each momentum equation is expressed as a sparse
+    combination of a <span id="d-nlib">14</span>-term candidate library &mdash; real physics terms
+    (convection, pressure gradient, diffusion) mixed with decoys (<code>u&sup2;</code>,
+    <code>u&middot;v</code>, <code>v&sup2;</code>, lone velocities, a constant&hellip;). An L1
+    sparsity penalty forces the network to keep only the terms the data actually supports
+    (SINDy-style sparse regression fused into the PINN loss, refined with STRidge-style sequential
+    thresholding). The result: it <strong>rediscovers the structure of the Navier&ndash;Stokes
+    equations</strong> from raw velocity samples &mdash; the true convection, pressure and diffusion
+    terms emerge with the right signs and dominant magnitudes, while the decoy terms are driven an
+    order of magnitude smaller.
+  </p>
+  <div class="viz" id="discovery-viz">
+    <div class="eqbox" id="d-equations"></div>
+    <div class="fieldpair">
+      <div class="fieldbox">
+        <h4>u-momentum: learned library coefficients</h4>
+        <canvas class="coef" id="cv-coef-u" width="640" height="430"></canvas>
+      </div>
+      <div class="fieldbox">
+        <h4>v-momentum: learned library coefficients</h4>
+        <canvas class="coef" id="cv-coef-v" width="640" height="430"></canvas>
+      </div>
+    </div>
+    <p class="legendline">
+      <span style="color:#4fc3f7">&#9632;</span> surviving term (|&xi;| &ge; threshold) &nbsp;
+      <span style="color:#54627f">&#9632;</span> pruned decoy &nbsp;
+      <span style="color:#ffb74d">|</span> true Navier&ndash;Stokes value
+    </p>
+  </div>
+
+  <h2><span class="num">06</span>Method Summary</h2>
   <p class="body">
     A fully-connected network <code>(x, y, t) &rarr; (&psi;, p)</code> with 8 hidden layers of 20 tanh units
     is trained with the loss
@@ -247,11 +297,12 @@
     Built as part of an Inspirit AI extracurricular project (2023&ndash;2025), in collaboration with UCSB PhD
     students &middot; Data: <a href="https://github.com/maziarraissi/PINNs" target="_blank">maziarraissi/PINNs</a>
     (Raissi, Perdikaris &amp; Karniadakis, <em>Journal of Computational Physics</em>, 2019) &middot;
-    Trained with <code>train_pinn.py</code> in this repository.
+    Trained with <code>train_pinn.py</code>; equations discovered with <code>discover_pde.py</code>.
   </div>
 </div>
 
 <script src="results/results.js"></script>
+<script src="results/discovery.js"></script>
 <script>
 (function () {
   if (typeof RESULTS === "undefined") {
@@ -417,6 +468,76 @@
 
   render();
   drawLoss();
+})();
+
+// ----- PDE discovery section -----
+(function () {
+  const viz = document.getElementById("discovery-viz");
+  if (typeof DISCOVERY === "undefined") {
+    if (viz) viz.innerHTML = '<p style="color:#93a0c4;font-size:13.5px">' +
+      'results/discovery.js not found — run <code>python3 discover_pde.py</code> to generate it.</p>';
+    return;
+  }
+
+  document.getElementById("d-nlib").textContent = DISCOVERY.n_library;
+  document.getElementById("d-equations").innerHTML =
+    fmtEq(DISCOVERY.eq_u) + "<br>" + fmtEq(DISCOVERY.eq_v);
+
+  function fmtEq(eq) {
+    const [lhs, rhs] = eq.split(" = ");
+    return '<span class="lhs">' + lhs + '</span> = ' + rhs;
+  }
+
+  function drawCoefs(canvasId, rows) {
+    const cv = document.getElementById(canvasId);
+    const ctx = cv.getContext("2d");
+    const W = cv.width, H = cv.height;
+    const padL = 76, padR = 60, rowH = (H - 20) / rows.length;
+    // signed square-root scale so 1.0 and 0.01 are both visible
+    const maxAbs = Math.max(...rows.map(r => Math.max(Math.abs(r.learned), Math.abs(r.true))), 0.01);
+    const scale = v => Math.sign(v) * Math.sqrt(Math.abs(v) / maxAbs);
+    const x0 = padL + (W - padL - padR) / 2;
+    const halfW = (W - padL - padR) / 2;
+
+    ctx.clearRect(0, 0, W, H);
+    ctx.font = "12px ui-monospace, Menlo, monospace";
+
+    // zero axis
+    ctx.strokeStyle = "#263156";
+    ctx.beginPath(); ctx.moveTo(x0, 6); ctx.lineTo(x0, H - 6); ctx.stroke();
+
+    rows.forEach((r, i) => {
+      const yc = 10 + i * rowH + rowH / 2;
+      // term label
+      ctx.fillStyle = r.active ? "#e8ecf8" : "#54627f";
+      ctx.textAlign = "right";
+      ctx.fillText(r.term, padL - 8, yc + 4);
+      // learned bar
+      const w = scale(r.learned) * halfW;
+      ctx.fillStyle = r.active ? "#4fc3f7" : "#54627f";
+      ctx.fillRect(Math.min(x0, x0 + w), yc - rowH * 0.28, Math.abs(w), rowH * 0.56);
+      // true-value tick
+      if (r.true !== 0) {
+        const tx = x0 + scale(r.true) * halfW;
+        ctx.strokeStyle = "#ffb74d"; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(tx, yc - rowH * 0.38); ctx.lineTo(tx, yc + rowH * 0.38); ctx.stroke();
+        ctx.lineWidth = 1;
+      }
+      // numeric label — flip to the empty side of the axis if the bar is long
+      ctx.fillStyle = r.active ? "#a5d6ff" : "#54627f";
+      let lx = x0 + w + (w >= 0 ? 6 : -6);
+      let align = w >= 0 ? "left" : "right";
+      if (w < 0 && lx < padL + 34) { lx = x0 + 6; align = "left"; }
+      if (w > 0 && lx > W - padR + 46) { lx = x0 - 6; align = "right"; }
+      ctx.textAlign = align;
+      ctx.fillText(r.learned.toFixed(3), lx, yc + 4);
+    });
+  }
+
+  // negate into the same convention as the displayed equations (u_t = -Theta·xi)
+  const rhs = rows => rows.map(r => ({ ...r, learned: -r.learned, true: -r.true }));
+  drawCoefs("cv-coef-u", rhs(DISCOVERY.u));
+  drawCoefs("cv-coef-v", rhs(DISCOVERY.v));
 })();
 </script>
 </body>
